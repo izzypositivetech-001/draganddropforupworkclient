@@ -2,25 +2,37 @@ import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 
 export default function MyDropzone() {
-  const [dataURL, setDataURL] = useState(null);
-  const [uploadedURL, setUploadedURL] = useState(null);
+  const [fileInfo, setFileInfo] = useState({
+    dataURL: null,
+    uploadedURL: null,
+    fileName: null,
+    fileType: null,
+    fileSize: null
+  });
   const [isUploading, setIsUploading] = useState(false);
-  const [dropzoneKey, setDropzoneKey] = useState(0); // <-- add a key state
+  const [dropzoneKey, setDropzoneKey] = useState(0);
 
   const onDrop = useCallback((acceptedFiles) => {
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setDataURL(reader.result);
-      };
-      reader.readAsDataURL(file);
-    });
+    const file = acceptedFiles[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFileInfo({
+        dataURL: reader.result,
+        uploadedURL: null,
+        fileName: file.name,
+        fileType: file.type || "Unknown",
+        fileSize: (file.size / (1024 * 1024)).toFixed(2) + " MB"
+      });
+    };
+    reader.readAsDataURL(file);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive, acceptedFiles } =
     useDropzone({
       onDrop,
-      accept: { "image/*": [] },
+      accept: "*/*", // Accept all file types
       maxFiles: 1,
     });
 
@@ -47,7 +59,7 @@ export default function MyDropzone() {
     try {
       setIsUploading(true);
       const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        `https://api.cloudinary.com/v1_1/${cloudName}/upload`,
         {
           method: "POST",
           body: formData,
@@ -56,7 +68,11 @@ export default function MyDropzone() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || "Upload failed");
-      setUploadedURL(data.secure_url);
+      
+      setFileInfo(prev => ({
+        ...prev,
+        uploadedURL: data.secure_url
+      }));
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -66,23 +82,62 @@ export default function MyDropzone() {
   };
 
   const handleCancel = () => {
-    setDataURL(null);
-    setUploadedURL(null);
-    setDropzoneKey((prev) => prev + 1); // 👈 bump the key to reset dropzone
+    setFileInfo({
+      dataURL: null,
+      uploadedURL: null,
+      fileName: null,
+      fileType: null,
+      fileSize: null
+    });
+    setDropzoneKey((prev) => prev + 1);
+  };
+
+  const getFileIcon = (fileType) => {
+    if (!fileType) return "📄";
+    
+    const type = fileType.split('/')[0];
+    switch(type) {
+      case 'image':
+        return '🖼️';
+      case 'video':
+        return '🎬';
+      case 'audio':
+        return '🎵';
+      case 'application':
+        if (fileType.includes('pdf')) return '📕';
+        if (fileType.includes('zip') || fileType.includes('compressed')) return '🗄️';
+        if (fileType.includes('msword') || fileType.includes('wordprocessingml')) return '📝';
+        if (fileType.includes('spreadsheetml') || fileType.includes('excel')) return '📊';
+        return '📄';
+      case 'text':
+        return '📝';
+      default:
+        return '📄';
+    }
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
       <div className="w-full max-w-md">
-        {dataURL ? (
+        {fileInfo.dataURL ? (
           <div className="relative p-4 bg-white rounded-lg shadow-lg transition-transform duration-300 animate-fade-in">
-            <img
-              src={dataURL}
-              alt="Preview"
-              className="rounded-lg w-full object-contain"
-            />
+            <div className="flex flex-col items-center mb-4">
+              <span className="text-4xl mb-2">{getFileIcon(fileInfo.fileType)}</span>
+              <h3 className="font-semibold text-lg truncate max-w-full">{fileInfo.fileName}</h3>
+              <p className="text-gray-600 text-sm">{fileInfo.fileType} • {fileInfo.fileSize}</p>
+            </div>
+
+            {/* Show preview for images */}
+            {fileInfo.fileType.startsWith('image/') && (
+              <img
+                src={fileInfo.dataURL}
+                alt="Preview"
+                className="rounded-lg w-full object-contain max-h-64 mb-4"
+              />
+            )}
+
             <div className="flex justify-between mt-4">
-              {uploadedURL ? (
+              {fileInfo.uploadedURL ? (
                 <span className="text-green-600 font-semibold">Uploaded!</span>
               ) : (
                 <button
@@ -105,7 +160,7 @@ export default function MyDropzone() {
           </div>
         ) : (
           <div
-            key={dropzoneKey} // 👈 this resets the dropzone
+            key={dropzoneKey}
             {...getRootProps()}
             className={`border-4 border-dashed rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
               isDragActive
@@ -131,26 +186,30 @@ export default function MyDropzone() {
               </svg>
               {isDragActive ? (
                 <p className="font-semibold text-blue-600 animate-pulse">
-                  Drop your image here...
+                  Drop your file here...
                 </p>
               ) : (
                 <p className="text-center">
-                  Drag & drop an image here, or click to select a file
+                  Drag & drop any file here, or click to select a file
                 </p>
               )}
+              <p className="text-xs text-gray-500 mt-2">Supports all file types</p>
             </div>
           </div>
         )}
 
-        {uploadedURL && (
-          <a
-            href={uploadedURL}
-            target="_blank"
-            rel="noreferrer"
-            className="block mt-4 text-blue-600 hover:underline break-all text-sm text-center"
-          >
-            {uploadedURL}
-          </a>
+        {fileInfo.uploadedURL && (
+          <div className="mt-4 text-center">
+            <a
+              href={fileInfo.uploadedURL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 hover:underline break-all text-sm"
+            >
+              {fileInfo.uploadedURL}
+            </a>
+            <p className="text-xs text-gray-500 mt-1">Click to view/download</p>
+          </div>
         )}
       </div>
     </div>
